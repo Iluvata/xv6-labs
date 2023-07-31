@@ -1,0 +1,11 @@
+a0, a1, ...; a2 holds 13
+
+they were all optimized as inline functions. f has the same assembly instead of calls g. Second argument of printf was an instance number 12 instead calls f(8)+1.
+
+0x630
+
+0x30
+
+He110 World 0x726c6400 no
+
+some value in the $a2. interperted as integer. Function call thought there were three arguments, and take $a2 as the third argument.
