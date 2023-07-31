@@ -79,6 +79,16 @@ usertrap(void)
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
+  if(which_dev == 2 && (p->sigalinterval || p->sigalhandler)){
+    p->sigalticks += 1;
+    if(p->sigalticks >= p->sigalinterval && !p->sigallock){
+      p->sigallock = 1;
+      p->sigalticks = 0;
+      p->sigalframe = *p->trapframe;
+      p->trapframe->epc = (uint64)p->sigalhandler;
+      usertrapret();
+    }
+  }
 
   usertrapret();
 }

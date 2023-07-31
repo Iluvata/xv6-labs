@@ -146,6 +146,11 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  p->sigalticks = 0;
+  p->sigalinterval = 0;
+  p->sigalhandler = (void (*)())0;
+  p->sigallock = 0;
+
   return p;
 }
 
