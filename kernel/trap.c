@@ -11,6 +11,8 @@ uint ticks;
 
 extern char trampoline[], uservec[], userret[];
 
+extern unsigned short kref[];
+
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
 
@@ -67,10 +69,41 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    setkilled(p);
+  } else if(r_scause() == 15){
+    uint64 va = r_stval();
+    // printf("page fault %p\n", va);
+    pte_t *pte;
+    if((pte = walk(p->pagetable, va, 0)) == 0)
+      goto err;
+    if((*pte & PTE_V) == 0)
+      goto err;
+    uint64 pa = PTE2PA(*pte);
+    if(!(*pte & PTE_C)){
+      goto err;
+    } else {
+      *pte &= ~PTE_C;
+      *pte |= PTE_W;
+      if(kref[PA2REF(pa)] != 1){
+        char *mem;
+        uint flags;
+        if((mem = kalloc()) == 0)
+          goto err;
+        memmove(mem, (char*)pa, PGSIZE);
+        flags = PTE_FLAGS(*pte);
+        uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 1);
+        if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, flags) != 0){
+          kfree(mem);
+          goto err;
+        }
+        *pte |= PTE_C;
+        *pte &= ~PTE_W;
+      }
+    }
+  } else{
+    err:
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      setkilled(p);
   }
 
   if(killed(p))

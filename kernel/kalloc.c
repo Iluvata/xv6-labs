@@ -23,10 +23,16 @@ struct {
   struct run *freelist;
 } kmem;
 
+unsigned short kref[32768] = {0};
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  // printf("end: %d, phystop: %d\n", PA2REF(end), PA2REF(PHYSTOP));
+  for(int i = 0; i < PA2REF(PHYSTOP); i++){
+    kref[i]++;
+  }
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -51,15 +57,26 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
+  if(PA2REF(pa) >= 32768)
+    panic("kfree: kref overflow!");
 
-  r = (struct run*)pa;
+  // if(--kref[PA2REF(pa)] != 0){
+  //   printf("kref: %d, num: %d\n", PA2REF(pa), kref[PA2REF(pa)]);
+  //   panic("kfree: non zero!");
+  // }
+  // printf("kref: %d, num: %d\n", PA2REF(pa), --kref[PA2REF(pa)]);
+  if(--kref[PA2REF(pa)] == 0)
+  {
+    // Fill with junk to catch dangling refs.
+    memset(pa, 1, PGSIZE);
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+    r = (struct run*)pa;
+
+    acquire(&kmem.lock);
+    r->next = kmem.freelist;
+    kmem.freelist = r;
+    release(&kmem.lock);
+  }
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -78,5 +95,11 @@ kalloc(void)
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+
+  if(PA2REF(r) >= 32768)
+    panic("kalloc: kref overflow!");
+
+  if(r)
+    kref[PA2REF(r)] += 1;
   return (void*)r;
 }
