@@ -11,7 +11,7 @@ uint ticks;
 
 extern char trampoline[], uservec[], userret[];
 
-extern unsigned short kref[];
+extern int kref[];
 
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
@@ -70,8 +70,11 @@ usertrap(void)
   } else if((which_dev = devintr()) != 0){
     // ok
   } else if(r_scause() == 15){
+    // goto err;
     uint64 va = r_stval();
     // printf("page fault %p\n", va);
+    if(va >= MAXVA)
+      goto err;
     pte_t *pte;
     if((pte = walk(p->pagetable, va, 0)) == 0)
       goto err;
@@ -84,6 +87,7 @@ usertrap(void)
       *pte &= ~PTE_C;
       *pte |= PTE_W;
       if(kref[PA2REF(pa)] != 1){
+        // printf("in trap, pa: %p, kref: %d\n", pa, PA2REF(pa));
         char *mem;
         uint flags;
         if((mem = kalloc()) == 0)

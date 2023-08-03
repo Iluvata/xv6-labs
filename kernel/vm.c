@@ -15,7 +15,7 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
-extern unsigned short kref[]; // kalloc.c
+extern int kref[]; // kalloc.c
 
 // Make a direct-map page table for the kernel.
 pagetable_t
@@ -318,27 +318,29 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    if(PA2REF(pa) <= 0)
+      panic("uvmcopy: fork non-ref page!!!!!");
 
-    // if(*pte & PTE_W){
-    //   *pte &= ~PTE_W;
-    //   *pte |= PTE_C;
-    // }
-    // flags = PTE_FLAGS(*pte);
-    // kref[PA2REF(pa)] += 1;
-    // if(mappages(new, i, PGSIZE, pa, flags) != 0){
-    //   kref[PA2REF(pa)] -= 1;
-    //   goto err;
-    // }
-
-    char *mem;
+    if(*pte & PTE_W){
+      *pte &= ~PTE_W;
+      *pte |= PTE_C;
+    }
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    kref[PA2REF(pa)] += 1;
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
+      kref[PA2REF(pa)] -= 1;
       goto err;
     }
+
+    // char *mem;
+    // flags = PTE_FLAGS(*pte);
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);
+    // if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    //   kfree(mem);
+    //   goto err;
+    // }
 
   }
   return 0;

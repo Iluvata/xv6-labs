@@ -23,7 +23,7 @@ struct {
   struct run *freelist;
 } kmem;
 
-unsigned short kref[32768] = {0};
+int kref[32768] = {0};
 
 void
 kinit()
@@ -57,15 +57,16 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  if(PA2REF(pa) >= 32768)
+  if(PA2REF(pa) >= 32768 || PA2REF(pa) < 0)
     panic("kfree: kref overflow!");
 
-  // if(--kref[PA2REF(pa)] != 0){
-  //   printf("kref: %d, num: %d\n", PA2REF(pa), kref[PA2REF(pa)]);
-  //   panic("kfree: non zero!");
-  // }
-  // printf("kref: %d, num: %d\n", PA2REF(pa), --kref[PA2REF(pa)]);
-  if(--kref[PA2REF(pa)] == 0)
+  kref[PA2REF(pa)] -= 1;
+  if(kref[PA2REF(pa)] < 0)
+    panic("kfree: negtave ref");
+  if(kref[PA2REF(pa)] != 0){
+    // printf("kfree not zero: pa: %p, kref: %d\n", pa, kref[PA2REF(pa)]);
+  }
+  if(kref[PA2REF(pa)] == 0)
   {
     // Fill with junk to catch dangling refs.
     memset(pa, 1, PGSIZE);
