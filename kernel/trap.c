@@ -72,7 +72,7 @@ usertrap(void)
   } else if(r_scause() == 15){
     // goto err;
     uint64 va = r_stval();
-    // printf("page fault %p\n", va);
+    // // printf("page fault %p\n", va);
     if(va >= MAXVA)
       goto err;
     pte_t *pte;
@@ -80,28 +80,30 @@ usertrap(void)
       goto err;
     if((*pte & PTE_V) == 0)
       goto err;
-    uint64 pa = PTE2PA(*pte);
+    // uint64 pa = PTE2PA(*pte);
     if(!(*pte & PTE_C)){
       goto err;
     } else {
-      *pte &= ~PTE_C;
-      *pte |= PTE_W;
-      if(kref[PA2REF(pa)] != 1){
-        // printf("in trap, pa: %p, kref: %d\n", pa, PA2REF(pa));
-        char *mem;
-        uint flags;
-        if((mem = kalloc()) == 0)
-          goto err;
-        memmove(mem, (char*)pa, PGSIZE);
-        flags = PTE_FLAGS(*pte);
-        uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 1);
-        if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, flags) != 0){
-          kfree(mem);
-          goto err;
-        }
-        *pte |= PTE_C;
-        *pte &= ~PTE_W;
-      }
+      if(cowalloc(p->pagetable, r_stval()) < 0)
+        goto err;
+
+      // *pte &= ~PTE_C;
+      // *pte |= PTE_W;
+      // if(kref[PA2REF(pa)] != 1){
+      //   char *mem;
+      //   uint flags;
+      //   if((mem = kalloc()) == 0)
+      //     goto err;
+      //   memmove(mem, (char*)pa, PGSIZE);
+      //   flags = PTE_FLAGS(*pte);
+      //   uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 1);
+      //   if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, flags) != 0){
+      //     kfree(mem);
+      //     goto err;
+      //   }
+      //   *pte |= PTE_C;
+      //   *pte &= ~PTE_W;
+      // }
     }
   } else{
     err:

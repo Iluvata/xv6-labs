@@ -26,12 +26,20 @@ struct {
 int kref[32768] = {0};
 
 void
+krefinc(int ref, int num)
+{
+  acquire(&kmem.lock);
+  kref[ref] += num;
+  release(&kmem.lock);
+}
+
+void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
   // printf("end: %d, phystop: %d\n", PA2REF(end), PA2REF(PHYSTOP));
   for(int i = 0; i < PA2REF(PHYSTOP); i++){
-    kref[i]++;
+    kref[i] = 1;
   }
   freerange(end, (void*)PHYSTOP);
 }
@@ -60,9 +68,16 @@ kfree(void *pa)
   if(PA2REF(pa) >= 32768 || PA2REF(pa) < 0)
     panic("kfree: kref overflow!");
 
+  acquire(&kmem.lock);
   kref[PA2REF(pa)] -= 1;
+  release(&kmem.lock);
+
+  // krefinc(PA2REF(pa), -1);
   if(kref[PA2REF(pa)] < 0)
+  {
+    printf("kfree: pa: %p, kref: %d\n", pa, kref[PA2REF(pa)]);
     panic("kfree: negtave ref");
+  }
   if(kref[PA2REF(pa)] != 0){
     // printf("kfree not zero: pa: %p, kref: %d\n", pa, kref[PA2REF(pa)]);
   }
@@ -97,10 +112,18 @@ kalloc(void)
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
 
-  if(PA2REF(r) >= 32768)
+  if(r && (PA2REF(r) >= 32768 || PA2REF(r) < 0))
     panic("kalloc: kref overflow!");
 
-  if(r)
-    kref[PA2REF(r)] += 1;
+  if(r && kref[PA2REF(r)] != 0)
+  {
+    // panic("kalloc: kref non zero!");
+  }
+
+  if(r){
+    // acquire(&(kreflock[PA2REF(r)]));
+    kref[PA2REF(r)] = 1;
+    // release(&(kreflock[PA2REF(r)]));
+  }
   return (void*)r;
 }

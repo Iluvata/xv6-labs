@@ -288,6 +288,34 @@ freewalk(pagetable_t pagetable)
   kfree((void*)pagetable);
 }
 
+int
+cowalloc(pagetable_t pagetable, uint64 va)
+{
+  if(va >= MAXVA){
+    printf("cowalloc: exceeds MAXVA\n");
+    return -1;
+  }
+
+  pte_t *pte = walk(pagetable, va, 0);
+  if(pte == 0){
+    panic("cowalloc: pte not exists");
+  }
+  if((*pte & PTE_V) == 0 || (*pte & PTE_U) == 0){
+    panic("cowalloc: pte permission err");
+  }
+  uint64 pa_new = (uint64)kalloc();
+  if(pa_new == 0){
+    printf("cowalloc: kalloc fails\n");
+    return -1;
+  }
+  uint64 pa_old = PTE2PA(*pte);
+  memmove((void *)pa_new, (const void*)pa_old, PGSIZE);
+  kfree((void *)pa_old);
+  *pte &= ~PTE_C;
+  *pte = PA2PTE(pa_new) | PTE_FLAGS(*pte) | PTE_W;
+  return 0;
+}
+
 // Free user memory pages,
 // then free page-table pages.
 void
@@ -326,9 +354,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       *pte |= PTE_C;
     }
     flags = PTE_FLAGS(*pte);
-    kref[PA2REF(pa)] += 1;
+    // kref[PA2REF(pa)] += 1;
+    krefinc(PA2REF(pa), 1);
     if(mappages(new, i, PGSIZE, pa, flags) != 0){
-      kref[PA2REF(pa)] -= 1;
+      // kref[PA2REF(pa)] -= 1;
+      krefinc(PA2REF(pa), -1);
       goto err;
     }
 
@@ -376,11 +406,12 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
+
     // pte_t *pte = walk(pagetable, va0, 0);
     // if(*pte & PTE_C){
     //   *pte &= ~PTE_C;
     //   *pte |= PTE_W;
-    //   if(kref[PA2REF(pa0)] != 1){
+    //   if(kref[PA2REF(pa0)] > 1){
     //     char *mem;
     //     uint flags;
     //     if((mem = kalloc()) == 0)
@@ -389,14 +420,23 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     //     flags = PTE_FLAGS(*pte);
     //     uvmunmap(pagetable, PGROUNDDOWN(va0), 1, 1);
     //     if(mappages(pagetable, PGROUNDDOWN(va0), PGSIZE, (uint64)mem, flags) != 0){
+    //       printf("copyout not mapped!! pa: %p, kref: %d\n", mem, kref[PA2REF(mem)]);
     //       kfree(mem);
     //       return -1;
     //     }
-    //     pa0 = (uint64)mem;
     //     *pte |= PTE_C;
     //     *pte &= ~PTE_W;
+    //     pa0 = (uint64)mem;
     //   }
     // }
+    pte_t *pte = walk(pagetable, va0, 0);
+    if(*pte & PTE_C){
+      if(cowalloc(pagetable, va0) < 0){
+        return -1;
+      }
+      pa0 = walkaddr(pagetable, va0);
+    }
+
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
