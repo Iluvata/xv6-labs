@@ -1,0 +1,4 @@
+2 threads may contend for put, using the same head of a linked list, resulting in the failure of some puts.
+
+sequence: thread 0: put 1; thread 1: put 500001; thread 0: put 6; thread 1: put 500006
+then while thread 0 write the head of table[1], it created an entry, but before it could write it back to table[1], thread 1 write an entry to table[1]. Then the write back of thread 0 could cause the entry wrote by thread 1 missing.
