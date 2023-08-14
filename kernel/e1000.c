@@ -101,9 +101,62 @@ e1000_transmit(struct mbuf *m)
   // the mbuf contains an ethernet frame; program it into
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
-  //
   
+  acquire(&e1000_lock);
+  uint32 tx_ring_idx = regs[E1000_TDT];
+  if(tx_ring_idx >= TX_RING_SIZE){
+    release(&e1000_lock);
+    return -1;
+  }
+  if((tx_ring[tx_ring_idx].status & E1000_TXD_STAT_DD) == 0){
+    release(&e1000_lock);
+    return -1;
+  }
+  if(tx_mbufs[tx_ring_idx]){
+    mbuffree(tx_mbufs[tx_ring_idx]);
+  }
+  struct tx_desc desc;
+  desc.addr = (uint64)m->head;
+  desc.cmd = 0x88;
+  // desc.cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
+  if(!(m->next))
+    desc.cmd += 1;
+  desc.cso = 0;
+  desc.css = 0;
+  desc.length = m->len;
+  desc.special = 0;
+  desc.status = 0;
+  tx_ring[tx_ring_idx] = desc;
+  tx_mbufs[tx_ring_idx] = m;
+  
+  regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
+  release(&e1000_lock);
+  // printf("%s %d\n", m->head, m->len);
   return 0;
+
+  //  acquire(&e1000_lock);
+  // // 查询ring里下一个packet的下标
+  // int idx = regs[E1000_TDT];
+
+  // if ((tx_ring[idx].status & E1000_TXD_STAT_DD) == 0) {
+  //   // 之前的传输还没有完成
+  //   release(&e1000_lock);
+  //   return -1;
+  // }
+
+  // // 释放上一个包的内存
+  // if (tx_mbufs[idx])
+  //   mbuffree(tx_mbufs[idx]);
+
+  // // 把这个新的网络包的pointer塞到ring这个下标位置
+  // tx_mbufs[idx] = m;
+  // tx_ring[idx].length = m->len;
+  // tx_ring[idx].addr = (uint64) m->head;
+  // tx_ring[idx].cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+  // regs[E1000_TDT] = (idx + 1) % TX_RING_SIZE;
+
+  // release(&e1000_lock);
+  // return 0;
 }
 
 static void
@@ -114,7 +167,44 @@ e1000_recv(void)
   //
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
-  //
+  // //
+  while(1){
+  acquire(&e1000_lock);
+  uint32 rx_ring_idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+  struct rx_desc desc = rx_ring[rx_ring_idx];
+  if((desc.status & E1000_RXD_STAT_DD) == 0){
+    release(&e1000_lock);
+    return;
+  }
+  struct mbuf *m = rx_mbufs[rx_ring_idx];
+  m->len = desc.length;
+  struct mbuf *m_new = mbufalloc(0);
+  if(!m_new)
+    panic("e1000");
+  rx_mbufs[rx_ring_idx] = m_new;
+  rx_ring[rx_ring_idx].addr = (uint64) m_new->head;
+  rx_ring[rx_ring_idx].status = 0;
+  regs[E1000_RDT] = rx_ring_idx;
+  release(&e1000_lock);
+  net_rx(m);
+  }
+
+  // while (1) {
+  //   // 把所有到达的packet向上层递交
+  //   int idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+  //   if ((rx_ring[idx].status & E1000_RXD_STAT_DD) == 0) {
+  //     // 没有新包了
+  //     return;
+  //   }
+  //   rx_mbufs[idx]->len = rx_ring[idx].length;
+  //   // 向上层network stack传输
+  //   net_rx(rx_mbufs[idx]);
+  //   // 把这个下标清空 放置一个空包
+  //   rx_mbufs[idx] = mbufalloc(0);
+  //   rx_ring[idx].status = 0;
+  //   rx_ring[idx].addr = (uint64)rx_mbufs[idx]->head;
+  //   regs[E1000_RDT] = idx;
+  // }
 }
 
 void
