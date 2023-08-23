@@ -97,8 +97,10 @@ bfree(int dev, uint b)
   bp = bread(dev, BBLOCK(b, sb));
   bi = b % BPB;
   m = 1 << (bi % 8);
-  if((bp->data[bi/8] & m) == 0)
+  if((bp->data[bi/8] & m) == 0){
+    printf("dev: %d, block:%d\n", dev, b);
     panic("freeing free block");
+  }
   bp->data[bi/8] &= ~m;
   log_write(bp);
   brelse(bp);
