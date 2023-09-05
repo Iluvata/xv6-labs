@@ -140,6 +140,8 @@ found:
     return 0;
   }
 
+  memset(p->vma, 0xff, sizeof(p->vma[0]) * 16);
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -357,6 +359,11 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+  for(int i = 0; i < 16; i++){
+    if(p->vma[i].addr != -1){
+      munmap(p->vma[i].addr, p->vma[i].len);
     }
   }
 

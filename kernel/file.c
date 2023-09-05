@@ -12,6 +12,7 @@
 #include "file.h"
 #include "stat.h"
 #include "proc.h"
+#include "fcntl.h"
 
 struct devsw devsw[NDEV];
 struct {
@@ -168,6 +169,7 @@ filewrite(struct file *f, uint64 addr, int n)
 
       if(r != n1){
         // error from writei
+        // printf("f->off: %d, want to write: %d, wrote: %d\n", f->off, n1, r);
         break;
       }
       i += r;
@@ -180,3 +182,62 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+int munmap(uint64 addr, int length)
+{
+  int i, n;
+  struct proc *p = myproc();
+  struct file *f;
+  pte_t *pte;
+  length = PGROUNDDOWN(addr + length) - PGROUNDUP(addr);
+  addr = PGROUNDUP(addr);
+  for(i = 0; i < 16; i++){
+    if((p->vma[i].addr != -1) && (p->vma[i].addr <= addr) && (addr < p->vma[i].addr + p->vma[i].len)){
+      break;
+    }
+  }
+  if(i == 16)
+    return -1;
+  if(addr + length > p->vma[i].addr + p->vma[i].len)
+    return -1;
+  f = p->vma[i].f;
+  if(p->vma[i].flags == MAP_SHARED){
+    for(n = 0; n < length; n += PGSIZE){
+      pte = walk(p->pagetable, addr+n, 0);
+      if(pte == 0){
+        printf("munmap: map not found\n");
+        return -1;
+      }
+      if(*pte & PTE_D){
+        ilock(f->ip);
+        f->off = p->vma[i].offset + addr + n - p->vma[i].addr;
+        iunlock(f->ip);
+        if(filewrite(f, addr+n, PGSIZE) != PGSIZE){
+          printf("writing addr: %d\n", addr+n);
+          printf("munmap write fail\n");
+          return -1;
+        }
+      }
+    }
+  }
+
+  if(addr == p->vma[i].addr){
+    if(length == p->vma[i].len){
+      p->vma[i].addr = -1;
+      fileclose(f);
+    }
+    else{
+      p->vma[i].addr += length;
+      p->vma[i].len -= length;
+      p->vma[i].offset += length;
+    }
+  } else{
+    if(addr + length < p->vma[i].addr + p->vma[i].len){
+      printf("unmap: pock a hole?\n");
+      return -1;
+    }
+    p->vma[i].len -= length;
+  }
+
+  uvmunmap(p->pagetable, addr, length / PGSIZE, 1);
+  return 0;
+}

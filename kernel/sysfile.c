@@ -371,6 +371,70 @@ sys_open(void)
 }
 
 uint64
+sys_mmap(void)
+{ 
+  int length, prot, flags, fd, offset, i;
+  uint64 sz, a;
+  struct file *f;
+
+  argint(1, &length);
+  argint(2, &prot);
+  argint(3, &flags);
+  if(argfd(4, &fd, &f) < 0)
+    return -1;
+  argint(5, &offset);
+
+  if((!f->readable && (prot & PROT_READ)) || (!f->writable && (flags != MAP_PRIVATE) && (prot & PROT_WRITE)))
+    return -1;
+
+  struct proc *p = myproc();
+
+  for(i = 0; i < 16; i++){
+    if(p->vma[i].addr == -1){
+      p->vma[i].f = f;
+      p->vma[i].flags = flags;
+      p->vma[i].len = length;
+      p->vma[i].offset = offset;
+      p->vma[i].prot = prot;
+      break;
+    }
+  }
+  if(i == 16)
+    return -1;
+
+  int perm = 0;
+  if(prot & PROT_READ)
+    perm |= PTE_R;
+  if((flags == MAP_PRIVATE) || (prot & PROT_WRITE))
+    perm |= PTE_W;
+  sz = PGROUNDUP(p->sz);
+  for(a = sz; a < sz + length; a += PGSIZE){
+    if(mappages(p->pagetable, a, PGSIZE, -1, perm | PTE_M) != 0){
+      printf("mmap: map fail\n");
+      int npages = (PGROUNDUP(a) - PGROUNDUP(sz)) / PGSIZE;
+      uvmunmap(p->pagetable, PGROUNDUP(sz), npages, 0);
+      return -1;
+    }
+  }
+  p->sz = a;
+  p->vma[i].addr = sz;
+  p->vma[i].len = a - sz;
+  filedup(f);
+
+  return sz;
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr;
+  int length;
+  argaddr(0, &addr);
+  argint(1, &length);
+  return munmap(addr, length);
+}
+
+uint64
 sys_mkdir(void)
 {
   char path[MAXPATH];

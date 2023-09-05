@@ -156,6 +156,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
     if(*pte & PTE_V)
       panic("mappages: remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
+    *pte &= ~PTE_D;
     if(a == last)
       break;
     a += PGSIZE;
@@ -183,7 +184,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
-    if(do_free){
+    if(do_free && !(*pte & PTE_M)){
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }

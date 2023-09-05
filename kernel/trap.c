@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -67,10 +70,61 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 13){
+    uint64 va = r_stval();
+    if(va >= MAXVA)
+      goto err;
+    pte_t *pte;
+    if((pte = walk(p->pagetable, va, 0)) == 0)
+      goto err;
+    if(!(*pte & PTE_M)){
+      goto err;
+    }
+    else{
+      struct file *f;
+      int i;
+      uint64 pa = (uint64)kalloc();
+      if(pa == 0){
+        printf("mmap: kalloc fail\n");
+        goto err;
+      }
+      memset((void*)pa, 0, PGSIZE);
+      for(i = 0; i < 16; i++){
+        if((p->vma[i].addr != -1) && (p->vma[i].addr <= va) && (va < p->vma[i].addr + p->vma[i].len)){
+          break;
+        }
+      }
+      if(i == 16){
+        printf("mmap lazy: no vma\n");
+        kfree((void*)pa);
+        goto err;
+      }
+      f = p->vma[i].f;
+      
+      ilock(f->ip);
+      if(readi(f->ip, 0, pa, PGROUNDDOWN(p->vma[i].offset + va - p->vma[i].addr), PGSIZE) == 0){
+        printf("i: %d, offset: %d\n", i, PGROUNDDOWN(p->vma[i].offset + va - p->vma[i].addr));
+        printf("va: %d\n", va);
+        for(int j = 0; j < 3; j++){
+          printf("vma[%d], addr: %d, f->ip: %d, len: %d\n", j, p->vma[j].addr, p->vma[j].f->ip, p->vma[j].len);
+        }
+        printf("mmap readi err\n");
+        iunlock(f->ip);
+        kfree((void*)pa);
+        goto err;
+      }
+      iunlock(f->ip);
+      
+      *pte = PA2PTE(pa) | PTE_FLAGS(*pte) | PTE_U;
+      *pte &= ~PTE_M;
+      *pte &= ~PTE_D;
+    }
+    
   } else {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    setkilled(p);
+    err:
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      setkilled(p);
   }
 
   if(killed(p))
