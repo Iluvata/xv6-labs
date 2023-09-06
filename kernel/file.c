@@ -238,6 +238,21 @@ int munmap(uint64 addr, int length)
     p->vma[i].len -= length;
   }
 
-  uvmunmap(p->pagetable, addr, length / PGSIZE, 1);
+  uint64 a;
+  for(a = addr; a < addr + length; a += PGSIZE){
+  if((pte = walk(p->pagetable, a, 0)) == 0)
+    panic("munmap: walk");
+  if((*pte & PTE_V) == 0)
+    panic("munmap: not mapped");
+  if(PTE_FLAGS(*pte) == PTE_V)
+    panic("uvmunmap: not a leaf");
+  if(!(*pte & PTE_M)){
+    uint64 pa = PTE2PA(*pte);
+    kfree((void*)pa);
+    *pte = PA2PTE(-1) | PTE_FLAGS(*pte) | PTE_M;
+  }
+  *pte &= ~(PTE_U);
+  // *pte = 0;
+}
   return 0;
 }

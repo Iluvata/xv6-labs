@@ -297,6 +297,11 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  memmove((void*)np->vma, (void*)p->vma, sizeof(p->vma[0])*16);
+  for(i = 0; i < 16; i++){
+    if(p->vma[i].addr != -1)
+      filedup(p->vma[i].f);
+  }
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
